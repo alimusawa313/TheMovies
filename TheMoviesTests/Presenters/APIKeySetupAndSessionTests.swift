@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import TheMovies
 
@@ -116,9 +117,44 @@ struct APIKeySetupPresenterTests {
 struct AppSessionTests {
     private let noLaunchOverrides = LaunchConfiguration(arguments: [], environment: [:])
 
+    /// Isolated defaults for a user who has launched the app before.
+    private func returningUser() -> UserDefaults {
+        let defaults = freshInstall()
+        defaults.set(true, forKey: AppSession.hasLaunchedKey)
+        return defaults
+    }
+
+    /// Isolated, empty defaults, as after deleting and reinstalling the app.
+    private func freshInstall() -> UserDefaults {
+        let suite = "AppSessionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+
+    @Test("A fresh install clears a key left in the Keychain by a previous install")
+    func freshInstallClearsLeftoverKey() {
+        let store = InMemoryCredentialStore(credential: .apiKey(Fixtures.validAPIKey))
+        let defaults = freshInstall()
+        let session = AppSession(store: store, launch: noLaunchOverrides, defaults: defaults)
+        #expect(session.mode == .onboarding)
+        #expect(store.current == nil)
+        #expect(defaults.bool(forKey: AppSession.hasLaunchedKey))
+    }
+
+    @Test("Relaunching after a fresh install keeps the newly saved key")
+    func relaunchKeepsKey() throws {
+        let store = InMemoryCredentialStore()
+        let defaults = freshInstall()
+        let first = AppSession(store: store, launch: noLaunchOverrides, defaults: defaults)
+        try first.signIn(with: .apiKey(Fixtures.validAPIKey))
+        let relaunched = AppSession(store: store, launch: noLaunchOverrides, defaults: defaults)
+        #expect(relaunched.mode == .live(.apiKey(Fixtures.validAPIKey)))
+    }
+
     @Test("Starts in onboarding without a stored key")
     func onboarding() {
-        let session = AppSession(store: InMemoryCredentialStore(), launch: noLaunchOverrides)
+        let session = AppSession(store: InMemoryCredentialStore(), launch: noLaunchOverrides, defaults: returningUser())
         #expect(session.mode == .onboarding)
         #expect(session.makeRepository() == nil)
     }
@@ -126,14 +162,14 @@ struct AppSessionTests {
     @Test("Restores a stored key")
     func restores() {
         let credential = APICredential.apiKey(Fixtures.validAPIKey)
-        let session = AppSession(store: InMemoryCredentialStore(credential: credential), launch: noLaunchOverrides)
+        let session = AppSession(store: InMemoryCredentialStore(credential: credential), launch: noLaunchOverrides, defaults: returningUser())
         #expect(session.mode == .live(credential))
     }
 
     @Test("Sign in persists, sign out clears")
     func signInAndOut() throws {
         let store = InMemoryCredentialStore()
-        let session = AppSession(store: store, launch: noLaunchOverrides)
+        let session = AppSession(store: store, launch: noLaunchOverrides, defaults: returningUser())
         let credential = APICredential.apiKey(Fixtures.validAPIKey)
         try session.signIn(with: credential)
         #expect(store.current == credential)
@@ -146,7 +182,7 @@ struct AppSessionTests {
     func signOutFailure() {
         let credential = APICredential.apiKey(Fixtures.validAPIKey)
         let store = InMemoryCredentialStore(credential: credential, failure: .unexpectedStatus(-25300))
-        let session = AppSession(store: store, launch: noLaunchOverrides)
+        let session = AppSession(store: store, launch: noLaunchOverrides, defaults: returningUser())
         #expect(throws: CredentialStoreError.unexpectedStatus(-25300)) { try session.signOut() }
         #expect(session.mode == .live(credential))
     }
@@ -157,7 +193,7 @@ struct AppSessionTests {
             arguments: [LaunchConfiguration.uiTestingArgument],
             environment: [LaunchConfiguration.scenarioKey: "failure", LaunchConfiguration.apiKeyKey: Fixtures.validAPIKey]
         )
-        let session = AppSession(store: InMemoryCredentialStore(credential: .apiKey(Fixtures.validAPIKey)), launch: launch)
+        let session = AppSession(store: InMemoryCredentialStore(credential: .apiKey(Fixtures.validAPIKey)), launch: launch, defaults: returningUser())
         #expect(session.mode == .demo(.failure))
         #expect(launch.environmentCredential == nil)
     }
@@ -168,7 +204,7 @@ struct AppSessionTests {
             arguments: [LaunchConfiguration.uiTestingArgument],
             environment: [LaunchConfiguration.scenarioKey: LaunchConfiguration.onboardingScenario]
         )
-        #expect(AppSession(store: InMemoryCredentialStore(), launch: launch).mode == .onboarding)
+        #expect(AppSession(store: InMemoryCredentialStore(), launch: launch, defaults: returningUser()).mode == .onboarding)
     }
 }
 

@@ -104,7 +104,11 @@ struct RouterTests {
 
     @Test("API key router signs in and starts demo mode")
     func apiKeyRouter() throws {
-        let session = AppSession(store: InMemoryCredentialStore(), launch: LaunchConfiguration(arguments: [], environment: [:]))
+        let session = AppSession(
+            store: InMemoryCredentialStore(),
+            launch: LaunchConfiguration(arguments: [], environment: [:]),
+            defaults: UserDefaults(suiteName: "RouterTests.\(UUID().uuidString)")!
+        )
         let router = APIKeySetupRouter(session: session)
         router.startDemo()
         #expect(session.isDemo)

@@ -50,12 +50,27 @@ final class AppSession {
     private let stubLatency: Duration
     private let logger = Logger(subsystem: "com.alihaidar.TheMovies", category: "Session")
 
-    init(store: any CredentialStoring, launch: LaunchConfiguration = LaunchConfiguration()) {
+    /// Set after the first launch. UserDefaults is wiped when the app is
+    /// deleted but the Keychain is not, so a missing flag means a fresh install.
+    static let hasLaunchedKey = "session.hasLaunchedBefore"
+
+    init(
+        store: any CredentialStoring,
+        launch: LaunchConfiguration = LaunchConfiguration(),
+        defaults: UserDefaults = .standard
+    ) {
         self.store = store
         self.stubLatency = launch.stubLatency
-        if launch.resetsStoredCredential {
-            try? store.delete()
+        let isFreshInstall = !defaults.bool(forKey: Self.hasLaunchedKey)
+        if launch.resetsStoredCredential || isFreshInstall {
+            // Drop any key left in the Keychain by a previous install.
+            do {
+                try store.delete()
+            } catch {
+                logger.error("Failed to clear leftover credential: \(String(describing: error), privacy: .public)")
+            }
         }
+        defaults.set(true, forKey: Self.hasLaunchedKey)
         if let scenario = launch.stubScenario {
             mode = .demo(scenario)
         } else if let credential = launch.environmentCredential ?? store.load() {
